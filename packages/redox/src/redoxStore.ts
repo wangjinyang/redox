@@ -24,7 +24,7 @@ import reduxDevTools from './reduxDevtools'
 const randomString = () =>
 	Math.random().toString(36).substring(7).split('').join('.')
 
-const ActionTypes = {
+export const ActionTypes = {
 	INIT: `@@redox/INIT${/* #__PURE__ */ randomString()}`,
 	SET: '@@redox/SET',
 	MODIFY: '@@redox/MODIFY',
@@ -58,6 +58,7 @@ const proxyMethods = [
 	'model',
 	'$set',
 	'$modify',
+	'getCurrentReducer',
 ] as const
 
 type IProxyMethods = typeof proxyMethods[number]
@@ -83,7 +84,9 @@ export function redox(
 ): IModelManager {
 	const cacheMap: ICacheMap = new Map()
 	let initState = initialState
-	plugins.unshift([reduxDevTools, undefined])
+	if (process.env.NODE_ENV === 'development') {
+		plugins.push([reduxDevTools, undefined])
+	}
 	const hooks = plugins.map(([plugin, option]) => plugin(option))
 	const modelManager = {
 		get<IModel extends AnyModel>(model: IModel) {
@@ -205,10 +208,13 @@ export class RedoxStore<IModel extends AnyModel> {
 		return this.currentState!
 	}
 
-	$set = (newState: State) => {
+	$set = (newState: State, setFromDevtools = false) => {
 		return this.dispatch({
 			type: ActionTypes.SET,
-			payload: newState,
+			payload: {
+				state: newState,
+				setFromDevtools,
+			},
 		})
 	}
 
@@ -292,6 +298,10 @@ export class RedoxStore<IModel extends AnyModel> {
 		}
 	}
 
+	getCurrentReducer = (): ReduxReducer<IModel['state']> => {
+		return this.currentReducer!
+	}
+
 	destroy = () => {
 		// @ts-ignore
 		this.currentState = null
@@ -369,10 +379,13 @@ export function createModelReducer<
 		if (action.type === ActionTypes.SET) {
 			if (process.env.NODE_ENV === 'development') {
 				validate(() => [
-					[!isObject(action.payload), 'Expected the payload to be an Object'],
+					[
+						!isObject(action.payload.state),
+						'Expected the payload to be an Object',
+					],
 				])
 			}
-			return action.payload
+			return action.payload.state
 		}
 
 		const reducer = model.reducers![action.type]
